@@ -1,0 +1,189 @@
+---
+title: "Metabolite X"
+output: 
+  word_document:
+    reference_docx: ref.docx
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 300)
+```
+
+```{r, echo=FALSE}
+metabolite = "metabolite X"
+```
+
+# `r metabolite`
+
+```{r load X matrix, echo=FALSE, message=FALSE, warning=FALSE}
+library(MetaboMate)
+library(hastaLaVista)
+library(car)
+
+get.idx=function(range=c(1,5), ppm){
+  range=sort(range, decreasing=T);
+  which(ppm<=range[1] & ppm>=range[2])}
+
+# X <- "your matrix of data"
+X <- bariatricRat.binned.4$binned.data
+
+# x_axis <- "your x-axis"
+x_axis <- bariatricRat.binned.4$binned.ppm
+
+# ID <- "a vector with unique ids"
+ID <- seq(1, nrow(X))
+
+# group <- country # or the metadata you wish to use for coloring
+group <- bariatricRat$metadata$Class
+
+# metadata <- "a data.frame with your metadata"
+metadata <- bariatricRat$metadata
+```
+
+## Patterns (or combination thereof) used for identification of feature
+
+```{r set pattern and region, echo=FALSE, fig.height=3, fig.width=3.5}
+patternID <- 1
+identifier = ID
+L = length(ID)
+
+# several ranges may be defined and combined to create a pattern
+# define here the range that should be used
+F <- which(x_axis > 2.42 & x_axis < 2.47)
+rangeList <- list(F)
+```
+
+From the loadings obtained in block X we can select outliers and use a STOCSY trace to highlight a pattern. We select this region for the `r L` samples in the dataset. A spectra that exhibit a strong feature (the pattern is cleary visible) is chosen as a pattern ID (here: `r patternID`).
+
+```{r ethanol plot pattern, echo=FALSE, fig.height=2.5, fig.width=3.5}
+for (i in rangeList) {
+  F <- i
+  subX <- X[, F]
+  
+  pattern <- as.numeric(subX[which(identifier == patternID),])
+  pattern <- pattern / sum(pattern)
+  
+  par(mar=c(4,4,2,4))
+  title <- paste("pattern for", metabolite)
+  plot(x_axis[F], pattern, type = "l", main = title,
+       ylab = "arbitrary units",
+       xlab = "ppm",
+       cex.main = 0.7,
+       cex.lab = 0.7,
+       cex.axis = 0.7)
+}
+```
+\pagebreak
+
+## Distribution of cross-correlation by class
+
+Each distribution of correlation was obtained using each of the above pattern (or combination thereof) and colour coded by Class. 
+
+```{r compute CCF, echo = FALSE, fig.height=2.5, fig.width=3.5}
+# define here what information should be used as a category or a group
+colorCode <- metadata$Class
+
+ccList = list()
+
+for (i in seq_along(rangeList)) {
+  F <- rangeList[[i]]
+  subX <- X[, F]
+  
+  pattern <- as.numeric(subX[which(identifier == patternID),])
+  
+  pattern[pattern == 0] <- 1e-04
+  dil.F <- 1/apply(subX, 1, function(x) median(x/pattern))
+  subX.scaled <- subX * dil.F
+  
+  res <- apply(subX.scaled, 1, function(x) {
+    ccf(pattern, x, lag.max = 10, plot = FALSE, type = c("correlation"))
+  })
+  
+  r <- unlist(lapply(res, function(x) max(x$acf)))
+  par(mar=c(4,4,2,4))
+  plot(r,
+       main = paste0(metabolite, ": cc colored by country (pattern: ", patternID, ")"),
+       xlab = "sample index",
+       ylab = "cross-correlation",
+       cex.main = 0.5,
+       cex.lab = 0.5,
+       cex.axis = 0.5,
+       cex = 0.2,
+       col = colorCode)
+  ccList[[i]] <- r
+}
+```
+
+\pagebreak
+## Visual inspection of the first 50 samples in the dataset
+
+```{r, echo = FALSE}
+# define here the threshold for selection
+selectThreshold <- 0.85
+# define a threshold for coloring. The samples with cross-correlation below this level (lower confidence) will be displayed with orange color later.
+colorThreshold <- 0.9
+```
+
+Using the combination of patterns, identification of feature was decided using the threshold of cross correlation (cc) value: high confidence (cc) >`r colorThreshold` was highlighted with green dots in the region; intermediate confidence (cc between `r selectThreshold` to `r colorThreshold`) was highlighted using orange dots and those considered with no features (cc < `r selectThreshold`) using red dots.  
+
+```{r check, echo=FALSE, fig.height=2.5, fig.width=3.5}
+# define the spectra region you would like to display for visual inspection (may be larger than the selected pattern)
+FL <- get.idx(c(2.35, 2.55), x_axis)
+# here you can select a range in case you defined a pattern with multiple ranges
+F <- rangeList[[1]]
+for (i in 1:50){
+  if (r[[i]] > selectThreshold){
+    if (r[[i]] < colorThreshold){
+      colr = "orange"
+    } else {
+      colr = "green"
+    }
+    txt = paste("cc:", round(r[i], 3), "/", metadata$country[i], "/ ID:", identifier[i])
+    par(mar=c(4,4,2,4))
+    plot(x_axis[FL], as.numeric(X[i, FL]), type = "l", main = txt, col = 1,
+         xlab = "ppm", ylab = "arbitrary unit", 
+         cex.main = 0.7,
+         cex.lab = 0.7,
+         cex.axis = 0.7,
+         xlim = rev(range(x_axis[FL])),
+         ylim = range(X[i, F]))
+    points(x_axis[F], as.numeric(X[i, F]), col = colr, cex = 0.2)
+  } else {
+    txt = paste("cc:", round(r[i], 3), "/", metadata$country[i], "/ ID:", identifier[i])
+    plot(x_axis[FL], as.numeric(X[i, FL]), type = "l", main = txt,
+         xlab = "ppm", ylab = "arbitrary unit",
+         xlim = rev(range(x_axis[FL])),
+         ylim = range(X[i, F]),
+         cex.main = 0.7,
+         cex.lab = 0.7,
+         cex.axis = 0.7)
+    points(x_axis[F], as.numeric(X[i, F]), col = 2, cex = 0.2)
+  }
+}
+```
+
+\pagebreak
+
+## `r metabolite` statistics
+
+### Percentage of samples with `r metabolite` by Class
+
+```{r stat percent, echo = FALSE}
+print(round(table(metadata$Class[which(r > selectThreshold)]) / table(metadata$Class) * 100, 1))
+```
+
+### Total number of samples with `r metabolite` by Class
+
+```{r stat, echo = FALSE}
+print(table(metadata$Class[which(r > selectThreshold)]))
+```
+
+### Total number of samples with `r metabolite`
+
+```{r stat sum, echo = FALSE}
+print(sum(table(metadata$Class[which(r > selectThreshold)])))
+```
+
+
+
+
